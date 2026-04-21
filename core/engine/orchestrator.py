@@ -5,6 +5,7 @@ from agno.agent import Agent
 
 from core.agents.synthesizer import AgentSynthesizer
 from core.config import settings
+from core.engine.ports import StatePort
 from core.engine.optimizer import EvolutionaryOptimizer
 from core.engine.planner_pipeline import PlannerPipeline
 from core.engine.run_loop_controller import RunLoopController
@@ -20,7 +21,7 @@ class IntentOrchestrator:
     Composes planner streaming, task execution, and the run loop.
     """
 
-    def __init__(self, blackboard: Blackboard, ui_callback: Any = None) -> None:
+    def __init__(self, blackboard: StatePort, ui_callback: Any = None) -> None:
         self.bb = blackboard
         self.ui_callback = ui_callback
         self.asynth = AgentSynthesizer()
@@ -59,5 +60,10 @@ class IntentOrchestrator:
 
     async def trigger_eo(self) -> None:
         """Runs EvolutionaryOptimizer (invoked from run loop as a background task)."""
-        eo = EvolutionaryOptimizer()
+        eo_kwargs: dict[str, object] = {}
+        if hasattr(self.bb, "trajectory_store"):
+            eo_kwargs["trajectory_store"] = getattr(self.bb, "trajectory_store")
+        if hasattr(self.bb, "skill_index"):
+            eo_kwargs["skill_store"] = getattr(self.bb, "skill_index")
+        eo = EvolutionaryOptimizer(**eo_kwargs)
         await eo.process_session(self.bb.state.session_id)

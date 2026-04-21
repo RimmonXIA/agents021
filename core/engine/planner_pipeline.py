@@ -7,7 +7,8 @@ from typing import Any
 from agno.agent import Agent
 
 from core.config import settings
-from core.memory.blackboard import Blackboard
+from core.agents.runner import retry_delay_seconds
+from core.engine.ports import StatePort
 from core.models import AtomicTask
 from core.utils.json_stream import StreamJSONParser
 from core.utils.logging import get_logger
@@ -16,7 +17,7 @@ logger = get_logger(__name__)
 
 
 class PlannerPipeline:
-    def __init__(self, blackboard: Blackboard, planner: Agent) -> None:
+    def __init__(self, blackboard: StatePort, planner: Agent) -> None:
         self.bb = blackboard
         self.planner = planner
 
@@ -86,4 +87,4 @@ class PlannerPipeline:
                 if current_attempt >= max_retries:
                     await self.bb.mark_failed()
                     break
-                await asyncio.sleep(1.0 * current_attempt)
+                await asyncio.sleep(retry_delay_seconds(current_attempt))

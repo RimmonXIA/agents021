@@ -36,12 +36,12 @@ graph TD
 ## 3. Component Design
 
 ### 3.1 IntentOrchestrator (IO)
-The IO is the central controller of the system. It operates in a single-threaded loop to maintain strict state consistency.
+The IO is the central controller of the system. It owns the orchestration event loop and delegates behavior to focused runtime boundaries (planner, scheduler, task executor, and EO trigger).
 
 -   **Decomposition**: Uses high-reasoning models (e.g., DeepSeek-R1) to break down the `original_intent` into a list of `AtomicTask` objects.
 -   **Execution Loop**:
-    -   **Sequential Mode (Legacy)**: Pops the next task from the TODO list and executes it.
-    -   **Branch-and-Merge Engine (Current Design)**: A high-concurrency engine that executes tasks in isolated workspaces, merging results back into the global state via a conflict-resolution gate. Supports dynamic key-based scheduling.
+    -   **Sequential Mode (Legacy)**: Historical design where tasks were executed one-by-one.
+    -   **Branch-and-Merge Engine (Current Design)**: A concurrency-aware scheduler that executes ready tasks in isolated workspaces and merges results back into global state. Supports dependency-based and key-aware scheduling.
 -   **Safe Run Pattern**: Implements centralized error handling, retries, and model fallbacks (e.g., falling back from `deepseek-reasoner` to `deepseek-chat` upon API instability).
 
 ### 3.2 AgentSynthesizer (AS)
@@ -56,6 +56,13 @@ The EO enables the system to "learn" from its own successes and failures.
 -   **Trajectory Analysis**: Retrieves the execution history (Trajectory) from the persistence layer.
 -   **Reflection Engine**: Uses an LLM to identify successful patterns and distill them into Generalized Standard Operating Procedures (SOPs).
 -   **Skill Distillation**: Converts trajectories into `Skill` objects and stores them in LanceDB with vector embeddings for future retrieval during the decomposition phase.
+
+### 3.4 Runtime Boundary Contracts
+Current runtime composition separates concerns into explicit boundaries:
+-   **State Boundary**: In-memory session state and scheduling metadata.
+-   **Trajectory Boundary**: SQLite trajectory persistence adapter.
+-   **Skill Boundary**: LanceDB skill retrieval/persistence adapter.
+-   **Evolution Boundary**: EO trigger and reflection lifecycle.
 
 ---
 
@@ -102,7 +109,6 @@ Used for vector-based retrieval of distilled skills.
 ---
 
 ## 7. Future Considerations
--   **Parallel Execution**: Implementation of the async orchestration loop as described in Section 8.
 -   **Multi-Step Reflection**: Allowing EO to perform deeper analysis over multiple sessions.
 -   **Advanced Safety Gating**: Implementing a dedicated "Safety Agent" within the IO loop to inspect sub-agent outputs.
 
@@ -117,7 +123,7 @@ To optimize execution latency without sacrificing state integrity, the system im
 
 1.  **Isolated Workspaces**: Every parallel task operates on a read-only snapshot of the Blackboard context.
 2.  **Change Sets**: Instead of direct writes, Sub-Agents return a proposed `ChangeSet`.
-3.  **MergeGate**: The IO Master Loop applies `ChangeSets` atomically. If two agents attempt to update the same key, the `MergeGate` applies a resolution policy (e.g., `semantic_merge` via a specialized LLM call or `version_overwrite`).
+3.  **MergeGate**: The IO loop applies `ChangeSets` atomically. Current production behavior supports deterministic policies (`overwrite`, `append`). `semantic_merge` is an extension point and currently falls back to overwrite semantics unless explicitly implemented.
 
 ### 8.2 Dynamic Key-Aware Scheduling
 Beyond static DAG dependencies (`depends_on`), the system supports **Key-Aware Scheduling**:

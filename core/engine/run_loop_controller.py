@@ -5,7 +5,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from core.memory.blackboard import Blackboard
+from core.engine.ports import StatePort
 from core.memory.compactor import SemanticCompactor
 from core.models import AtomicTask
 from core.utils.logging import get_logger
@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class RunLoopController:
     def __init__(
         self,
-        blackboard: Blackboard,
+        blackboard: StatePort,
         decompose: Callable[[], Awaitable[None]],
         execute_task: Callable[
             [AtomicTask, dict[str, tuple[AtomicTask, asyncio.Task[None]]]],

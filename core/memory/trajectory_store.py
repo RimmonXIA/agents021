@@ -44,3 +44,13 @@ class TrajectoryStore:
                 (session_id, step_id, task_json, result_json, timestamp),
             )
             conn.commit()
+
+    def fetch_session(self, session_id: str) -> list[tuple[int, str, str]]:
+        """Load a session trajectory ordered by step id."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT step_id, task_json, result_json FROM trajectories WHERE session_id = ? ORDER BY step_id ASC",
+                (session_id,),
+            )
+            return [(int(step_id), str(task_json), str(result_json)) for step_id, task_json, result_json in cursor.fetchall()]

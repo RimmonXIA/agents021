@@ -7,6 +7,7 @@ import asyncio
 import json
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from agno.agent import Agent
@@ -16,6 +17,22 @@ from core.config import settings
 from core.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class AgentRunResult:
+    """Typed agent execution contract used by executors and EO."""
+
+    success: bool
+    content: str | None = None
+    parsed: Any = None
+    error: Exception | None = None
+    attempts: int = 0
+
+
+def retry_delay_seconds(attempt: int) -> float:
+    """Shared linear backoff for planner/agent retries."""
+    return 1.0 * attempt
 
 
 def parse_structured_response(content: Any, response_model: type) -> Any:
@@ -45,11 +62,11 @@ async def run_agent(
     on_failed_attempt: Callable[[Agent, int, Exception], None] | None = None,
     on_reasoning: Callable[[str], None] | None = None,
     return_none_on_failure: bool = False,
-) -> Any:
+) -> AgentRunResult:
     """
     Run agent.run in a thread pool with retries and optional structured parsing.
 
-    On total failure: returns the last exception (default) or None if return_none_on_failure.
+    On total failure: returns a typed failure result.
     """
     max_retries = max_retries or settings.max_retries
     current_attempt = 0
@@ -86,8 +103,14 @@ async def run_agent(
                 raise ValueError("Received empty response from model.")
 
             if response_model:
-                return parse_structured_response(content, response_model)
-            return content
+                parsed = parse_structured_response(content, response_model)
+                return AgentRunResult(
+                    success=True,
+                    content=str(content),
+                    parsed=parsed,
+                    attempts=current_attempt,
+                )
+            return AgentRunResult(success=True, content=str(content), attempts=current_attempt)
         except Exception as e:
             last_error = e
             if on_failed_attempt:
@@ -97,5 +120,5 @@ async def run_agent(
             if current_attempt >= max_retries:
                 break
     if return_none_on_failure:
-        return None
-    return last_error
+        return AgentRunResult(success=False, error=None, attempts=current_attempt)
+    return AgentRunResult(success=False, error=last_error, attempts=current_attempt)

@@ -6,6 +6,7 @@ from typing import Any
 
 import lancedb
 
+from core.models import Skill
 from core.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -43,3 +44,22 @@ class SkillIndex:
         except Exception as e:
             logger.debug(f"Skills table not found or error during retrieval: {e}")
             return []
+
+    def persist_skill(self, skill: Skill) -> None:
+        """Persist a distilled skill for future semantic retrieval."""
+        data = [
+            {
+                "id": skill.id,
+                "title": skill.title,
+                "description": skill.description,
+                "content_markdown": skill.content_markdown,
+                "text": f"{skill.title} {skill.description}",
+            }
+        ]
+        try:
+            table = self.vector_db.open_table("skills")
+            table.add(data)
+            logger.info("Skill '%s' added to existing table.", skill.title)
+        except Exception:
+            self.vector_db.create_table("skills", data=data)
+            logger.info("Skill '%s' persisted to new table.", skill.title)

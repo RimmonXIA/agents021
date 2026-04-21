@@ -28,7 +28,12 @@ A modern, autonomous multi-agent system built on the **Trinity Architecture**:
 
 ## 📖 Usage
 
-Run a task using the Makefile:
+Run a task using the CLI:
+```bash
+uv run trinity run "Analyze the performance of the latest NVIDIA GPUs and summarize the findings into a markdown report."
+```
+
+Or via Makefile:
 ```bash
 make run intent="Analyze the performance of the latest NVIDIA GPUs and summarize the findings into a markdown report."
 ```
@@ -53,9 +58,10 @@ make run intent="Analyze the performance of the latest NVIDIA GPUs and summarize
 The system is built on the **Trinity Architecture**, focusing on modularity and evolution. For a deep dive into the design, components, and data models, see the [Software Design Document (SDD)](docs/SDD.md).
 
 ### Core Components
-- **IntentOrchestrator (IO)**: The "nO Master Loop" that manages task decomposition and execution state via the Blackboard pattern.
-- **AgentSynthesizer (AS)**: A dynamic factory that assembles and arms sub-agents on-demand.
-- **EvolutionaryOptimizer (EO)**: A reflection engine that distills successful trajectories into reusable semantic skills (SOPs).
+- **IntentOrchestrator (IO)**: Composition root for decomposition, scheduling, and execution boundaries.
+- **AgentSynthesizer (AS)**: Dynamic factory that assembles and arms sub-agents on demand.
+- **EvolutionaryOptimizer (EO)**: Reflection engine that distills successful trajectories into reusable semantic skills (SOPs).
+- **Blackboard Runtime**: In-memory session state plus separate persistence adapters for trajectory and skills.
 
 ### Technical Stack
 - **Framework**: Built on `Agno` (formerly Phidata).

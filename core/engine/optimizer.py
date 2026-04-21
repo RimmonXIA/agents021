@@ -1,13 +1,13 @@
 import json
-import sqlite3
-from typing import Any
 
-import lancedb
 from agno.agent import Agent
 from agno.models.deepseek import DeepSeek
 
 from core.agents.runner import run_agent
 from core.config import settings
+from core.engine.ports import SkillPort, TrajectoryPort
+from core.memory.skill_index import SkillIndex
+from core.memory.trajectory_store import TrajectoryStore
 from core.models import EOSkillExtract, Skill
 from core.utils.logging import get_logger
 
@@ -26,9 +26,13 @@ class EvolutionaryOptimizer:
     Extracts successful trajectories and refines them into reusable Skills (SOPs).
     """
 
-    def __init__(self) -> None:
-        self.db_path = settings.sqlite_db_path
-        self.lancedb_dir = settings.lancedb_dir
+    def __init__(
+        self,
+        trajectory_store: TrajectoryPort | None = None,
+        skill_store: SkillPort | None = None,
+    ) -> None:
+        self._trajectory_store = trajectory_store or TrajectoryStore(settings.sqlite_db_path)
+        self._skill_store = skill_store or SkillIndex(settings.lancedb_dir)
         self.reflection_agent = Agent(
             model=DeepSeek(id=settings.eo_model),
             name="ReflectionEngine",
@@ -48,38 +52,31 @@ class EvolutionaryOptimizer:
         logger.info(f"Starting Reflection on session: {session_id}")
 
         trajectory_text: list[str] = []
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT step_id, task_json, result_json FROM trajectories WHERE session_id = ? ORDER BY step_id ASC",
-                (session_id,),
+        rows = self._trajectory_store.fetch_session(session_id)
+        if not rows:
+            logger.warning(f"No trajectory found for session {session_id}")
+            return
+
+        for step_id, t_json, r_json in rows:
+            task = json.loads(t_json)
+            result = json.loads(r_json)
+            output = str(result.get("output", ""))
+            trajectory_text.append(
+                f"Step {step_id}: Task: {task.get('description')} -> "
+                f"Status: {result.get('status')} -> Output: {output[:200]}..."
             )
-            rows = cursor.fetchall()
-
-            if not rows:
-                logger.warning(f"No trajectory found for session {session_id}")
-                return
-
-            for row in rows:
-                step_id, t_json, r_json = row
-                task = json.loads(t_json)
-                result = json.loads(r_json)
-                trajectory_text.append(
-                    f"Step {step_id}: Task: {task.get('description')} -> "
-                    f"Status: {result.get('status')} -> Output: {result.get('output')[:200]}..."
-                )
 
         trajectory_str = "\n".join(trajectory_text)
         logger.info("Analyzing Trajectory for skill distillation...")
 
-        skill_data = await run_agent(
+        run_result = await run_agent(
             self.reflection_agent,
             f"Trajectory to analyze:\n{trajectory_str}",
             response_model=EOSkillExtract,
             on_failed_attempt=_eo_on_failed_attempt,
             on_reasoning=lambda rc: logger.debug(f"[EO Reflection Thinking]\n{rc}"),
-            return_none_on_failure=True,
         )
+        skill_data = run_result.parsed if run_result.success else None
 
         if isinstance(skill_data, EOSkillExtract):
             if skill_data.skip:
@@ -92,26 +89,6 @@ class EvolutionaryOptimizer:
                     vector_embedding=None,
                 )
                 logger.info(f"Distilling skill: {skill.title}")
-                self._persist_skill(skill)
+                self._skill_store.persist_skill(skill)
         else:
             logger.error("Reflection failed to produce valid skill data.")
-
-    def _persist_skill(self, skill: Skill) -> None:
-        """Saves the skill to LanceDB for semantic retrieval."""
-        db = lancedb.connect(self.lancedb_dir)
-        data = [
-            {
-                "id": skill.id,
-                "title": skill.title,
-                "description": skill.description,
-                "content_markdown": skill.content_markdown,
-                "text": f"{skill.title} {skill.description}",
-            }
-        ]
-        try:
-            table = db.open_table("skills")
-            table.add(data)
-            logger.info(f"Skill '{skill.title}' added to existing table.")
-        except Exception:
-            db.create_table("skills", data=data)
-            logger.info(f"Skill '{skill.title}' persisted to new table.")

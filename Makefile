@@ -19,5 +19,5 @@ run:
 	@if [ -z "$(intent)" ]; then \
 		echo "Usage: make run intent=\"your intent here\""; \
 	else \
-		uv run python run.py "$(intent)"; \
+		uv run python run.py run "$(intent)"; \
 	fi

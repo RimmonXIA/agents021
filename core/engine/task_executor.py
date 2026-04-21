@@ -4,9 +4,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from core.agents.runner import run_agent
+from core.agents.runner import AgentRunResult, run_agent
 from core.agents.synthesizer import AgentSynthesizer
-from core.memory.blackboard import Blackboard
+from core.engine.ports import StatePort
 from core.models import AtomicTask, SubAgentResult, TrajectoryStep
 from core.utils.logging import get_logger
 
@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class TaskExecutor:
     def __init__(
         self,
-        blackboard: Blackboard,
+        blackboard: StatePort,
         synthesizer: AgentSynthesizer,
         ui_callback: Any,
         concurrency_limit: asyncio.Semaphore,
@@ -58,14 +58,27 @@ class TaskExecutor:
                 self.ui_callback("task_status", {"task_id": task.id, "status": "Running Sub-Agent..."})
 
             prompt = f"Task: {task.description}\nExpected Output: {task.expected_output}"
-            output = await run_agent(sub_agent, prompt, augment_prompt_on_parse_retry=True)
+            raw_result = await run_agent(sub_agent, prompt, augment_prompt_on_parse_retry=True)
+            if isinstance(raw_result, AgentRunResult):
+                run_result = raw_result
+            elif isinstance(raw_result, str):
+                # Backward compatibility for tests/mocks that patch run_agent with plain strings.
+                run_result = AgentRunResult(success=True, content=raw_result, attempts=1)
+            elif isinstance(raw_result, Exception):
+                run_result = AgentRunResult(success=False, error=raw_result, attempts=1)
+            else:
+                run_result = AgentRunResult(
+                    success=False,
+                    error=RuntimeError(f"Unexpected run_agent response type: {type(raw_result)}"),
+                    attempts=1,
+                )
 
-            if isinstance(output, str):
+            if run_result.success and run_result.content is not None:
                 if self.ui_callback:
                     self.ui_callback("task_status", {"task_id": task.id, "status": "finished"})
 
-                result = SubAgentResult(task_id=task.id, status="success", output=output)
-                changeset = {f"{task.id}_result": output}
+                result = SubAgentResult(task_id=task.id, status="success", output=run_result.content)
+                changeset = {f"{task.id}_result": run_result.content}
                 await self.bb.apply_changeset(task, changeset)
                 await self.bb.record_step(
                     TrajectoryStep(
@@ -79,10 +92,10 @@ class TaskExecutor:
                 if self.ui_callback:
                     self.ui_callback(
                         "task_result",
-                        {"task_id": task.id, "output": output},
+                        {"task_id": task.id, "output": run_result.content},
                     )
             else:
-                error_msg = f"Task execution failed: {output}"
+                error_msg = f"Task execution failed: {run_result.error}"
                 logger.error(error_msg)
                 await self._record_failure(task, error_msg, local_step_id)
 

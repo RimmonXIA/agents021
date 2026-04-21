@@ -60,10 +60,13 @@ class IntentOrchestrator:
 
     async def trigger_eo(self) -> None:
         """Runs EvolutionaryOptimizer (invoked from run loop as a background task)."""
+        await self.bb.flush_trajectory()
         eo_kwargs: dict[str, object] = {}
-        if hasattr(self.bb, "trajectory_store"):
-            eo_kwargs["trajectory_store"] = getattr(self.bb, "trajectory_store")
-        if hasattr(self.bb, "skill_index"):
-            eo_kwargs["skill_store"] = getattr(self.bb, "skill_index")
+        trajectory_store = self.bb.trajectory_port()
+        if trajectory_store is not None:
+            eo_kwargs["trajectory_store"] = trajectory_store
+        skill_store = self.bb.skill_port()
+        if skill_store is not None:
+            eo_kwargs["skill_store"] = skill_store
         eo = EvolutionaryOptimizer(**eo_kwargs)
-        await eo.process_session(self.bb.state.session_id)
+        await eo.process_session(self.bb.state.session_id, self.bb.state.original_intent)

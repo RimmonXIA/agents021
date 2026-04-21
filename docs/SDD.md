@@ -101,16 +101,33 @@ The system uses Pydantic for strict schema enforcement.
 ### 6.1 Trajectory Storage (SQLite)
 Used for structured, relational storage of execution steps during and after a session.
 -   **Table**: `trajectories` (session_id, step_id, task_json, result_json).
+-   **Write Path**: Steps are appended through an asynchronous buffered writer with explicit flush barriers before EO session analysis.
 
 ### 6.2 Semantic Memory (LanceDB)
 Used for vector-based retrieval of distilled skills.
 -   **Table**: `skills` (id, title, description, content_markdown, vector).
+-   **Governance Fields**: `gate_decision`, `gate_rationale`, `quality_score`, `evidence_step_ids`, and `provenance` are persisted for auditability and stage-aware promotion decisions.
+
+### 6.3 SOTA Readiness Evaluation Protocol
+-   **Balanced Replay Corpus**: `evals/evaluate_eo.py` builds a deterministic 200-intent corpus (5 categories x 40) to avoid toy-sample bias.
+-   **Repeated-Run Statistics**: observe/soft/hard replays are executed for >=5 seeded runs and report mean/stddev/95% CI for precision@3, recall@3, and dead-end rate.
+-   **Locked Baseline Control**: KPI reports include immutable `before` metrics from the pre-implementation control and `after` aggregated treatment metrics.
+-   **Evidence Integrity Gate**: skills with `gate_decision=accept` must satisfy `quality_score >= EO_MIN_QUALITY_SCORE` and non-empty `evidence_step_ids`.
+-   **Artifact Contract**: all run metadata (timestamp, seed, commit SHA, corpus version, sample size, category counts) is written to `evals/kpi_report.json`.
+
+### 6.4 Rollout Stages and Regression Blocking
+-   **Observe Stage**: telemetry/schema safety only; no hard write blocking.
+-   **Soft Stage**: governance active, low-confidence skills may be marked deprecated/revise.
+-   **Hard Stage**: strict write/retrieval gating with evidence+quality enforcement.
+-   **Rollback Triggers**: precision/recall threshold misses, dead-end improvement regression, CI determinism failures, or auditability regressions force stage demotion.
+-   **CLI Gate Check**: `trinity rollout-status --report-path evals/kpi_report.json` validates stage gates and exits non-zero when rollback triggers are active (CI-friendly).
 
 ---
 
 ## 7. Future Considerations
 -   **Multi-Step Reflection**: Allowing EO to perform deeper analysis over multiple sessions.
 -   **Advanced Safety Gating**: Implementing a dedicated "Safety Agent" within the IO loop to inspect sub-agent outputs.
+-   **Reflection-Memory Strategy**: A quality-first meta design and SOTA survey is documented in [Reflection-Memory: Why It Exists and What SOTA Looks Like](reflection_memory_sota.md).
 
 ---
 
@@ -123,12 +140,16 @@ To optimize execution latency without sacrificing state integrity, the system im
 
 1.  **Isolated Workspaces**: Every parallel task operates on a read-only snapshot of the Blackboard context.
 2.  **Change Sets**: Instead of direct writes, Sub-Agents return a proposed `ChangeSet`.
-3.  **MergeGate**: The IO loop applies `ChangeSets` atomically. Current production behavior supports deterministic policies (`overwrite`, `append`). `semantic_merge` is an extension point and currently falls back to overwrite semantics unless explicitly implemented.
+3.  **MergeGate**: The IO loop applies `ChangeSets` atomically with deterministic policies:
+    - `overwrite`: replace value
+    - `append`: list extension / string concatenation
+    - `semantic_merge`: recursive dict merge, list dedupe merge, and string append fallback
 
 ### 8.2 Dynamic Key-Aware Scheduling
 Beyond static DAG dependencies (`depends_on`), the system supports **Key-Aware Scheduling**:
 - A task is launched only when its `required_keys` are available and valid in the Blackboard.
 - This allows for "Emergent Dependencies" where the exact data requirements are discovered during orchestration.
+- Scheduler readiness uses cached completed-task IDs and shared-key sets to avoid repeated full-list recomputation on large plans.
 
 ### 8.3 Causal Trajectory Reconstruction
 To ensure the `EvolutionaryOptimizer` can learn from parallel runs, the system records **Causal Metadata**:

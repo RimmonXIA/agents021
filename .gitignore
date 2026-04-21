@@ -211,3 +211,6 @@ data/
 
 # Generated Artifacts
 artifacts/
+
+# Cursor
+.cursor/

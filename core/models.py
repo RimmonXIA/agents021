@@ -76,6 +76,20 @@ class Skill(BaseModel):
     title: str = Field(..., description="Short, descriptive title of the skill.")
     description: str = Field(..., description="When should this skill be applied?")
     content_markdown: str = Field(..., description="The actual SOP or instructions in Markdown.")
+    tags: list[str] = Field(default_factory=list, description="Retrieval helper tags.")
+    source_session_ids: list[str] = Field(default_factory=list, description="Sessions used to distill this skill.")
+    evidence_step_ids: list[int] = Field(default_factory=list, description="Trajectory step IDs backing this skill.")
+    quality_score: float = Field(default=0.0, description="EO confidence and quality score in [0, 1].")
+    version: int = Field(default=1, description="Version number for skill lifecycle management.")
+    supersedes: str | None = Field(default=None, description="Skill ID superseded by this newer version.")
+    status: str = Field(default="active", description="Lifecycle status: active, deprecated, archived.")
+    memory_tier: str = Field(default="warm", description="Memory tier: hot, warm, or cold.")
+    gate_decision: str = Field(default="observe", description="Write gate decision: observe, accept, revise, reject.")
+    gate_rationale: str = Field(default="", description="Write gate rationale for auditability.")
+    provenance: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Provenance metadata persisted with the skill record.",
+    )
     vector_embedding: list[float] | None = Field(None, description="Vector representation for semantic search.")
 
 class GlobalState(BaseModel):
@@ -110,3 +124,79 @@ class EOSkillExtract(BaseModel):
     title: str = Field(default="", description="Short title of the new skill.")
     description: str = Field(default="", description="Description of when to apply the skill.")
     content_markdown: str = Field(default="", description="The step-by-step SOP.")
+
+
+class ReflectionPackStep(BaseModel):
+    """Structured trajectory evidence unit used by EO."""
+    step_id: int = Field(..., description="Monotonic step ID.")
+    task_id: str = Field(..., description="Task identifier.")
+    task_description: str = Field(..., description="Task description.")
+    status: str = Field(..., description="Execution status for this step.")
+    context_keys: list[str] = Field(default_factory=list, description="Context keys requested by this task.")
+    required_keys: list[str] = Field(default_factory=list, description="Readiness keys required by this task.")
+    parent_ids: list[str] = Field(default_factory=list, description="Logical parent task IDs.")
+    sibling_ids: list[str] = Field(default_factory=list, description="Concurrent sibling task IDs.")
+    output_excerpt: str = Field(default="", description="Bounded output excerpt for compact prompts.")
+    output_chunks: list[str] = Field(default_factory=list, description="Chunked output evidence.")
+    artifacts: dict[str, Any] = Field(default_factory=dict, description="Structured artifacts from execution.")
+    timestamp: str = Field(default="", description="ISO timestamp for this step.")
+
+
+class ReflectionPack(BaseModel):
+    """EO input payload with all evidence needed for robust distillation."""
+    session_id: str = Field(..., description="Session identifier.")
+    original_intent: str = Field(..., description="Original user intent for the run.")
+    total_steps: int = Field(..., description="Step count in this session.")
+    success_steps: int = Field(..., description="Successful steps count.")
+    failed_steps: int = Field(..., description="Failed/error steps count.")
+    parallelism_observed: bool = Field(..., description="True if any step has siblings.")
+    steps: list[ReflectionPackStep] = Field(default_factory=list, description="Trajectory evidence steps.")
+
+
+class EOCandidateSkill(BaseModel):
+    """Candidate skill generated in EO pass 1."""
+    title: str = Field(..., description="Skill title.")
+    description: str = Field(..., description="When to apply this skill.")
+    content_markdown: str = Field(..., description="Actionable SOP content.")
+    evidence_step_ids: list[int] = Field(default_factory=list, description="Supporting trajectory steps.")
+    tags: list[str] = Field(default_factory=list, description="Classification and retrieval tags.")
+
+
+class EOCandidateList(BaseModel):
+    """EO pass 1 output: candidate skill proposals."""
+    candidates: list[EOCandidateSkill] = Field(default_factory=list, description="Proposed candidate skills.")
+
+
+class EOReviewedSkill(BaseModel):
+    """EO pass 2 output: candidate review with confidence."""
+    title: str = Field(..., description="Skill title.")
+    description: str = Field(..., description="When to apply this skill.")
+    content_markdown: str = Field(..., description="Actionable SOP content.")
+    evidence_step_ids: list[int] = Field(default_factory=list, description="Supporting trajectory steps.")
+    tags: list[str] = Field(default_factory=list, description="Classification and retrieval tags.")
+    faithfulness_score: float = Field(..., description="Evidence-grounded faithfulness score in [0, 1].")
+    novelty_score: float = Field(..., description="Novelty score in [0, 1].")
+    utility_score: float = Field(..., description="Expected utility score in [0, 1].")
+    concerns: list[str] = Field(default_factory=list, description="Potential risks or quality issues.")
+
+
+class EOReviewedSkillList(BaseModel):
+    """EO pass 2 output list."""
+    reviewed_candidates: list[EOReviewedSkill] = Field(default_factory=list)
+
+
+class EOGatedSkill(BaseModel):
+    """EO pass 3 final decision for a reviewed skill."""
+    title: str = Field(..., description="Skill title.")
+    description: str = Field(..., description="When to apply this skill.")
+    content_markdown: str = Field(..., description="Actionable SOP content.")
+    evidence_step_ids: list[int] = Field(default_factory=list, description="Supporting trajectory steps.")
+    tags: list[str] = Field(default_factory=list, description="Classification and retrieval tags.")
+    quality_score: float = Field(..., description="Final score in [0, 1].")
+    decision: str = Field(..., description="Decision: accept, revise, reject.")
+    rationale: str = Field(default="", description="Why this decision was made.")
+
+
+class EOGateResult(BaseModel):
+    """EO pass 3 output list."""
+    gated_candidates: list[EOGatedSkill] = Field(default_factory=list)

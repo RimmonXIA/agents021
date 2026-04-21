@@ -1,0 +1,246 @@
+{
+  "generated_at_utc": "2026-04-21T08:37:27.482835+00:00",
+  "run_metadata": {
+    "timestamp_utc": "2026-04-21T08:37:27.482847+00:00",
+    "commit_sha": "fe99827",
+    "seed": 20260421,
+    "runs": 5,
+    "sample_size": 200,
+    "corpus_version": "sota_readiness_v1"
+  },
+  "methodology": {
+    "retrieval_metric": "precision@3 and recall@3 over offline replay corpus",
+    "dead_end_metric": "fraction of replay intents with recall@3 == 0 or deprecated top hit in observe/soft",
+    "control_definition": "locked baseline control from pre-implementation branch/session",
+    "shadow_definition": "soft mode router (no hard blocking)",
+    "treatment_definition": "hard mode router",
+    "repeated_runs": 5,
+    "confidence_interval": "95% normal approximation over run means",
+    "historical_dead_end_sample_size": 64,
+    "observed_historical_dead_end_rate": 0.234375,
+    "corpus_category_counts": {
+      "fact_checking": 40,
+      "release_notes": 40,
+      "incident_response": 40,
+      "artifact_persistence": 40,
+      "structured_reporting": 40
+    }
+  },
+  "before": {
+    "precision_at_3": 0.33,
+    "recall_at_3": 1.0,
+    "dead_end_rate": 0.234375,
+    "sample_size": 64,
+    "method": "Locked pre-implementation control metrics from persisted trajectory records."
+  },
+  "after": {
+    "observe": {
+      "precision_at_3": {
+        "mean": 0.6666666666666665,
+        "stddev": 0.0,
+        "ci95_half_width": 0.0
+      },
+      "recall_at_3": {
+        "mean": 0.845,
+        "stddev": 0.0,
+        "ci95_half_width": 0.0
+      },
+      "dead_end_rate": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "ci95_half_width": 0.0
+      },
+      "sample_size": 200,
+      "runs": 5,
+      "gate_distribution": {
+        "accept": 5,
+        "revise": 3,
+        "reject": 0,
+        "observe": 0
+      },
+      "per_run": [
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        }
+      ]
+    },
+    "soft": {
+      "precision_at_3": {
+        "mean": 0.6666666666666665,
+        "stddev": 0.0,
+        "ci95_half_width": 0.0
+      },
+      "recall_at_3": {
+        "mean": 0.845,
+        "stddev": 0.0,
+        "ci95_half_width": 0.0
+      },
+      "dead_end_rate": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "ci95_half_width": 0.0
+      },
+      "sample_size": 200,
+      "runs": 5,
+      "gate_distribution": {
+        "accept": 5,
+        "revise": 3,
+        "reject": 0,
+        "observe": 0
+      },
+      "per_run": [
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        }
+      ]
+    },
+    "hard": {
+      "precision_at_3": {
+        "mean": 0.6666666666666665,
+        "stddev": 0.0,
+        "ci95_half_width": 0.0
+      },
+      "recall_at_3": {
+        "mean": 0.845,
+        "stddev": 0.0,
+        "ci95_half_width": 0.0
+      },
+      "dead_end_rate": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "ci95_half_width": 0.0
+      },
+      "sample_size": 200,
+      "runs": 5,
+      "gate_distribution": {
+        "accept": 5,
+        "revise": 3,
+        "reject": 0,
+        "observe": 0
+      },
+      "per_run": [
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        },
+        {
+          "precision_at_3": 0.6666666666666665,
+          "recall_at_3": 0.845,
+          "dead_end_rate": 0.0
+        }
+      ]
+    }
+  },
+  "thresholds": {
+    "precision_at_3_min": 0.6,
+    "recall_at_3_min": 0.7,
+    "dead_end_improvement_min": 0.2,
+    "quality_score_min_for_accept": 0.65,
+    "evidence_required": true
+  },
+  "dead_end_improvement_vs_locked_baseline": 1.0,
+  "accepted_skill_integrity": {
+    "accepted_count": 5,
+    "quality_threshold": 0.65,
+    "violations": [],
+    "pass": true
+  },
+  "stage_gates": {
+    "observe": {
+      "checks": {
+        "schema_safety": true,
+        "telemetry_nonempty": true
+      },
+      "pass": true
+    },
+    "soft": {
+      "checks": {
+        "governance_active": true,
+        "kpi_stable": true
+      },
+      "pass": true
+    },
+    "hard": {
+      "checks": {
+        "precision_at_3": true,
+        "recall_at_3": true,
+        "dead_end_improvement": true,
+        "accepted_skill_integrity": true
+      },
+      "pass": true
+    }
+  },
+  "rollback_triggers": {
+    "determinism_or_ci_failure": false,
+    "precision_regression": false,
+    "recall_regression": false,
+    "dead_end_improvement_regression": false,
+    "auditability_regression": false
+  },
+  "pass": {
+    "precision_at_3": true,
+    "recall_at_3": true,
+    "dead_end_improvement": true,
+    "accepted_skill_integrity": true
+  }
+}

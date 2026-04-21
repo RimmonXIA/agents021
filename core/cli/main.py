@@ -1,6 +1,8 @@
 import asyncio
+import json
 import uuid
 import logging
+from pathlib import Path
 from typing import Optional
 import typer
 from rich.logging import RichHandler
@@ -146,12 +148,61 @@ def doctor():
 
     ui.console.print(cap_table)
 
+
 @app.command()
-def list_sessions():
+def rollout_status(
+    report_path: str = typer.Option("evals/kpi_report.json", help="Path to generated KPI report."),
+):
+    """Validate observe/soft/hard rollout gates from KPI report."""
+    path = Path(report_path)
+    if not path.exists():
+        ui.console.print(f"[t.error]KPI report not found: {path}[/t.error]")
+        raise typer.Exit(code=1)
+
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        ui.console.print(f"[t.error]Failed to parse KPI report: {exc}[/t.error]")
+        raise typer.Exit(code=1)
+
+    stage_gates = report.get("stage_gates", {})
+    rollback_triggers = report.get("rollback_triggers", {})
+    if not isinstance(stage_gates, dict) or not isinstance(rollback_triggers, dict):
+        ui.console.print("[t.error]KPI report missing stage_gates or rollback_triggers.[/t.error]")
+        raise typer.Exit(code=1)
+
+    table = Table(box=None)
+    table.add_column("Stage", style="white")
+    table.add_column("Pass", justify="center")
+    table.add_column("Checks", style="dim")
+    for stage in ("observe", "soft", "hard"):
+        gate = stage_gates.get(stage, {})
+        checks = gate.get("checks", {}) if isinstance(gate, dict) else {}
+        check_summary = ", ".join(f"{k}={bool(v)}" for k, v in checks.items()) if checks else "n/a"
+        stage_pass = bool(gate.get("pass", False)) if isinstance(gate, dict) else False
+        stage_status = "[t.success]PASS[/t.success]" if stage_pass else "[t.error]FAIL[/t.error]"
+        table.add_row(stage, stage_status, check_summary)
+    ui.console.print(table)
+
+    active_triggers = [name for name, active in rollback_triggers.items() if bool(active)]
+    if active_triggers:
+        ui.console.print(f"[t.error]Rollback required:[/t.error] {', '.join(active_triggers)}")
+        raise typer.Exit(code=1)
+    ui.console.print("[t.success]No rollback triggers active. Promotion allowed.[/t.success]")
+
+@app.command()
+def list_sessions(limit: int = typer.Option(20, min=1, max=500, help="Maximum sessions to list.")):
     """List previous Trinity sessions."""
-    # This requires blackboard to support listing. 
-    # For now, placeholder.
-    ui.console.print("[t.warning]Session listing not yet implemented in Blackboard backend.[/t.warning]")
+    bb = Blackboard(session_id="session-index")
+    sessions = bb.list_sessions(limit=limit)
+    if not sessions:
+        ui.console.print("[t.warning]No persisted sessions found.[/t.warning]")
+        return
+    table = Table(box=None)
+    table.add_column("Session ID", style="white")
+    for sid in sessions:
+        table.add_row(sid)
+    ui.console.print(table)
 
 @app.command()
 def chat(

@@ -63,6 +63,13 @@ The system is built on the **Trinity Architecture**, focusing on modularity and 
 - **EvolutionaryOptimizer (EO)**: Reflection engine that distills successful trajectories into reusable semantic skills (SOPs).
 - **Blackboard Runtime**: In-memory session state plus separate persistence adapters for trajectory and skills.
 
+### Runtime Guarantees
+- Trajectory data is persisted durably and is available for EO reflection at session handoff.
+- Task scheduling preserves `depends_on` and `required_keys` semantics.
+- Change application supports deterministic merge policies: `overwrite`, `append`, and `semantic_merge`.
+- `get_context(..., filter_query=...)` supports query-based context filtering.
+- `trinity list-sessions` lists recent persisted session IDs.
+
 ### Technical Stack
 - **Framework**: Built on `Agno` (formerly Phidata).
 - **LLMs**: Optimized for DeepSeek-R1 (Reasoning) and DeepSeek-V3 (Chat).

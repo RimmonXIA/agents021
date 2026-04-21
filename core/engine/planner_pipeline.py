@@ -1,13 +1,12 @@
 """Streaming planner decomposition into blackboard todos."""
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from agno.agent import Agent
 
 from core.config import settings
-from core.agents.runner import retry_delay_seconds
+from core.agents.runner import run_agent_stream
 from core.engine.ports import StatePort
 from core.models import AtomicTask
 from core.utils.json_stream import StreamJSONParser
@@ -42,49 +41,42 @@ class PlannerPipeline:
         if skills:
             skills_context = "\n\n### Applicable Skills (SOPs) ###\n"
             for s in skills:
+                quality = s.get("quality_score", "")
+                quality_text = f" (quality={quality})" if quality else ""
+                tags = s.get("tags", "")
+                tags_text = f"\n  Tags: {tags}" if tags else ""
+                tier = s.get("memory_tier", "")
+                tier_text = f"\n  Tier: {tier}" if tier else ""
                 skills_context += (
-                    f"- **{s['title']}**: {s['description']}\n  Content: {s['content']}\n"
+                    f"- **{s['title']}**{quality_text}: {s['description']}\n"
+                    f"  Content: {s['content']}{tags_text}{tier_text}\n"
                 )
 
         prompt = clock + self.bb.state.original_intent + skills_context
 
         parser = StreamJSONParser(target_key="tasks")
 
-        max_retries = settings.max_retries
-        current_attempt = 0
-
-        while current_attempt < max_retries:
-            current_attempt += 1
-            try:
-                stream = self.planner.arun(prompt, stream=True)
-                reasoning_buffer: list[str] = []
-
-                async for chunk in stream:
-                    reasoning = (
-                        chunk.reasoning_content
-                        if (hasattr(chunk, "reasoning_content") and chunk.reasoning_content is not None)
-                        else ""
-                    )
-                    if reasoning:
-                        reasoning_buffer.append(reasoning)
-
-                    text = chunk.content if (hasattr(chunk, "content") and chunk.content is not None) else ""
-                    if text:
-                        for task_dict in parser.feed(text):
-                            try:
-                                task = AtomicTask.model_validate(task_dict)
-                                await self.bb.add_todo(task)
-                                logger.info(f"Incremental Task Injection: {task.id}")
-                            except Exception as e:
-                                logger.error(f"Failed to validate incremental task: {e}")
-
-                if reasoning_buffer:
-                    logger.debug(f"[IO_Planner Thinking Process]\n{''.join(reasoning_buffer)}")
+        async def _on_chunk(chunk: Any) -> None:
+            text = chunk.content if (hasattr(chunk, "content") and chunk.content is not None) else ""
+            if not text:
                 return
+            for task_dict in parser.feed(text):
+                try:
+                    task = AtomicTask.model_validate(task_dict)
+                    await self.bb.add_todo(task)
+                    logger.info(f"Incremental Task Injection: {task.id}")
+                except Exception as e:
+                    logger.error(f"Failed to validate incremental task: {e}")
 
-            except Exception as e:
-                logger.error(f"Streaming decomposition attempt {current_attempt} failed: {e}")
-                if current_attempt >= max_retries:
-                    await self.bb.mark_failed()
-                    break
-                await asyncio.sleep(retry_delay_seconds(current_attempt))
+        result = await run_agent_stream(
+            self.planner,
+            prompt,
+            max_retries=settings.max_retries,
+            on_chunk=_on_chunk,
+            on_failed_attempt=lambda _agent, attempt, err: logger.error(
+                "Streaming decomposition attempt %s failed: %s", attempt, err
+            ),
+            on_reasoning=lambda thought: logger.debug(f"[IO_Planner Thinking Process]\n{thought}"),
+        )
+        if not result.success:
+            await self.bb.mark_failed()

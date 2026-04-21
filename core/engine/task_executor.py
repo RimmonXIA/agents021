@@ -77,7 +77,17 @@ class TaskExecutor:
                 if self.ui_callback:
                     self.ui_callback("task_status", {"task_id": task.id, "status": "finished"})
 
-                result = SubAgentResult(task_id=task.id, status="success", output=run_result.content)
+                result = SubAgentResult(
+                    task_id=task.id,
+                    status="success",
+                    output=run_result.content,
+                    artifacts={
+                        "parent_ids": task.depends_on,
+                        "sibling_ids": sibling_ids,
+                        "required_keys": task.required_keys,
+                        "context_keys": task.context_keys,
+                    },
+                )
                 changeset = {f"{task.id}_result": run_result.content}
                 await self.bb.apply_changeset(task, changeset)
                 await self.bb.record_step(
@@ -100,5 +110,14 @@ class TaskExecutor:
                 await self._record_failure(task, error_msg, local_step_id)
 
     async def _record_failure(self, task: AtomicTask, error_msg: str, step_id: int) -> None:
-        result = SubAgentResult(task_id=task.id, status="error", output=error_msg)
+        result = SubAgentResult(
+            task_id=task.id,
+            status="error",
+            output=error_msg,
+            artifacts={
+                "parent_ids": task.depends_on,
+                "required_keys": task.required_keys,
+                "context_keys": task.context_keys,
+            },
+        )
         await self.bb.record_step(TrajectoryStep(step_id=step_id, task=task, result=result))

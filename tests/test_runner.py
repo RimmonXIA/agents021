@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
-from core.agents.runner import parse_structured_response, retry_delay_seconds, run_agent
+from core.agents.runner import parse_structured_response, retry_delay_seconds, run_agent, run_agent_stream
 
 
 class _Sample(BaseModel):
@@ -51,3 +51,33 @@ async def test_run_agent_returns_typed_failure_result() -> None:
 def test_retry_delay_seconds() -> None:
     assert retry_delay_seconds(1) == 1.0
     assert retry_delay_seconds(3) == 3.0
+
+
+@pytest.mark.asyncio
+async def test_run_agent_stream_retries_and_succeeds() -> None:
+    class _Chunk:
+        def __init__(self, content: str) -> None:
+            self.content = content
+            self.reasoning_content = ""
+
+    class _FlakyStreamAgent:
+        name = "FlakyStream"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def arun(self, prompt: str, stream: bool = True):  # noqa: ANN001
+            del prompt, stream
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("first fail")
+            yield _Chunk("ok")
+
+    pieces: list[str] = []
+
+    async def on_chunk(chunk):  # noqa: ANN001
+        pieces.append(chunk.content)
+
+    result = await run_agent_stream(_FlakyStreamAgent(), "hello", on_chunk=on_chunk, max_retries=2)  # type: ignore[arg-type]
+    assert result.success is True
+    assert pieces == ["ok"]

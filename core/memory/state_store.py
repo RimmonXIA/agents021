@@ -26,6 +26,8 @@ class SessionStateStore:
             ),
         )
         self.lock = asyncio.Lock()
+        self._completed_task_ids: set[str] = set()
+        self._shared_keys: set[str] = set()
 
     async def add_todo(self, task: AtomicTask) -> None:
         async with self.lock:
@@ -40,23 +42,22 @@ class SessionStateStore:
     async def get_ready_tasks(self) -> list[AtomicTask]:
         ready = []
         async with self.lock:
-            completed_ids = {t.id for t in self.state.completed_tasks}
-            shared_keys = set(self.state.shared_memory.keys())
-
+            deferred: list[AtomicTask] = []
             for task in self.state.todo_list:
-                static_met = all(dep_id in completed_ids for dep_id in task.depends_on)
-                dynamic_met = all(key in shared_keys for key in task.required_keys)
+                static_met = all(dep_id in self._completed_task_ids for dep_id in task.depends_on)
+                dynamic_met = all(key in self._shared_keys for key in task.required_keys)
                 if static_met and dynamic_met:
                     ready.append(task)
-
-            for task in ready:
-                self.state.todo_list.remove(task)
+                else:
+                    deferred.append(task)
+            self.state.todo_list = deferred
         return ready
 
     async def update_context(self, key: str, value: Any) -> None:
         async with self.lock:
             logger.debug("Updating shared memory: %s", key)
             self.state.shared_memory[key] = value
+            self._shared_keys.add(key)
 
     async def apply_changeset(self, task: AtomicTask, changes: dict[str, Any]) -> None:
         async with self.lock:
@@ -72,18 +73,59 @@ class SessionStateStore:
                     else:
                         self.state.shared_memory[key] = value
                 elif task.branch_policy == "semantic_merge":
-                    logger.warning(
-                        "Semantic merge requested for %s but not yet fully implemented. Overwriting.",
-                        key,
+                    self.state.shared_memory[key] = self._semantic_merge_value(
+                        self.state.shared_memory.get(key), value
                     )
-                    self.state.shared_memory[key] = value
+                self._shared_keys.add(key)
 
     async def get_context(self, keys: list[str], filter_query: str | None = None) -> dict[str, Any]:
         async with self.lock:
             context = {k: self.state.shared_memory.get(k) for k in keys}
             if filter_query:
-                logger.debug("Applying context filter: %s", filter_query)
+                context = self._filter_context(context, filter_query)
             return context
+
+    def _semantic_merge_value(self, existing: Any, incoming: Any) -> Any:
+        """Deterministic merge policy for branch_policy=semantic_merge."""
+        if existing is None:
+            return incoming
+        if isinstance(existing, dict) and isinstance(incoming, dict):
+            merged = dict(existing)
+            for key, value in incoming.items():
+                merged[key] = self._semantic_merge_value(existing.get(key), value)
+            return merged
+        if isinstance(existing, list) and isinstance(incoming, list):
+            merged = list(existing)
+            for item in incoming:
+                if item not in merged:
+                    merged.append(item)
+            return merged
+        if isinstance(existing, str) and isinstance(incoming, str):
+            if incoming in existing:
+                return existing
+            return f"{existing}\n\n{incoming}".strip()
+        return incoming
+
+    def _filter_context(self, context: dict[str, Any], filter_query: str) -> dict[str, Any]:
+        terms = [term.lower() for term in filter_query.split() if term.strip()]
+        if not terms:
+            return context
+
+        def _matches(value: Any) -> bool:
+            haystack = str(value).lower()
+            return all(term in haystack for term in terms)
+
+        filtered: dict[str, Any] = {}
+        for key, value in context.items():
+            if _matches(key) or _matches(value):
+                filtered[key] = value
+        logger.debug(
+            "Applied context filter '%s': %s -> %s entries",
+            filter_query,
+            len(context),
+            len(filtered),
+        )
+        return filtered
 
     def world_context_patch(self) -> dict[str, Any]:
         ws = self.state.world_state
@@ -101,6 +143,7 @@ class SessionStateStore:
         async with self.lock:
             self.state.trajectory.append(step)
             self.state.completed_tasks.append(step.task)
+            self._completed_task_ids.add(step.task.id)
 
     async def mark_completed(self) -> None:
         async with self.lock:

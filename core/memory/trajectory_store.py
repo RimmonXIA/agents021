@@ -26,6 +26,10 @@ class TrajectoryStore:
                 )
                 """
             )
+            cursor.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_trajectories_session_step "
+                "ON trajectories(session_id, step_id)"
+            )
             conn.commit()
 
     def append(
@@ -39,9 +43,21 @@ class TrajectoryStore:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO trajectories (session_id, step_id, task_json, result_json, timestamp) "
+                "INSERT OR REPLACE INTO trajectories (session_id, step_id, task_json, result_json, timestamp) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (session_id, step_id, task_json, result_json, timestamp),
+            )
+            conn.commit()
+
+    def append_batch(self, rows: list[tuple[str, int, str, str, str]]) -> None:
+        if not rows:
+            return
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.executemany(
+                "INSERT OR REPLACE INTO trajectories (session_id, step_id, task_json, result_json, timestamp) "
+                "VALUES (?, ?, ?, ?, ?)",
+                rows,
             )
             conn.commit()
 
@@ -54,3 +70,26 @@ class TrajectoryStore:
                 (session_id,),
             )
             return [(int(step_id), str(task_json), str(result_json)) for step_id, task_json, result_json in cursor.fetchall()]
+
+    def fetch_session_detailed(self, session_id: str) -> list[tuple[int, str, str, str]]:
+        """Load detailed session trajectory ordered by step id."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT step_id, task_json, result_json, timestamp "
+                "FROM trajectories WHERE session_id = ? ORDER BY step_id ASC",
+                (session_id,),
+            )
+            return [
+                (int(step_id), str(task_json), str(result_json), str(timestamp))
+                for step_id, task_json, result_json, timestamp in cursor.fetchall()
+            ]
+
+    def list_sessions(self, limit: int = 50) -> list[str]:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT session_id FROM trajectories GROUP BY session_id ORDER BY MAX(timestamp) DESC LIMIT ?",
+                (limit,),
+            )
+            return [str(row[0]) for row in cursor.fetchall()]

@@ -12,6 +12,7 @@ from core.engine.orchestrator import IntentOrchestrator
 from core.memory.blackboard import Blackboard
 from core.utils.logging import setup_logging, get_logger
 from core.cli import ui
+from core.cli.repl import run_repl
 
 app = typer.Typer(help="Trinity: Modern Multi-Agent Orchestration CLI")
 logger = get_logger("trinity")
@@ -52,20 +53,20 @@ async def _run_async(intent: str, review: bool, verbose: bool):
     bb = Blackboard(session_id=session_id, original_intent=intent)
     orchestrator = IntentOrchestrator(blackboard=bb)
 
-    # 2. Decompose Intent (Initial Plan)
-    with ui.console.status("[bold cyan]Decomposing intent...[/bold cyan]"):
-        await orchestrator.decompose_intent()
-    
-    # 3. HITL Review
+    # 2. HITL Review
     if review:
-        plan = await bb.get_full_plan() # I might need to add this helper to Blackboard
+        with ui.console.status("[bold cyan]Decomposing intent...[/bold cyan]"):
+            await orchestrator.decompose_intent()
+        
+        plan = await bb.get_full_plan()
         if not ui.confirm_plan(plan):
             ui.console.print("[yellow]Execution aborted by user.[/yellow]")
             return
 
     # 4. Live Orchestration
     live_ui = ui.LiveOrchestrator(session_id, intent)
-    
+    orchestrator.ui_callback = live_ui.handle_event
+
     # Add CLI Thinking Handler
     thinking_handler = CLIThinkingHandler(live_ui)
     logging.getLogger().addHandler(thinking_handler)
@@ -83,7 +84,7 @@ async def _run_async(intent: str, review: bool, verbose: bool):
         
         async def ui_poller():
             while bb.state.status == "running":
-                live_ui.update_tasks(bb.state.todo_list, bb.state.completed_tasks, list(orchestrator.running_tasks.keys()))
+                live_ui.update_tasks(bb.state.todo_list, bb.state.completed_tasks, list(orchestrator.running_tasks.values()))
                 live_ui.update_memory(bb.state.shared_memory)
                 await asyncio.sleep(0.5)
 
@@ -92,10 +93,14 @@ async def _run_async(intent: str, review: bool, verbose: bool):
         await poller
         
     finally:
+        orchestrator.ui_callback = None
         live_ui.stop()
         logging.getLogger().removeHandler(thinking_handler)
 
-    # 5. Summary & Feedback
+    # 5. Assistant output (after Live stops — Rich Live hides prints during run)
+    ui.print_task_results_from_shared_memory(bb.state.shared_memory)
+
+    # 6. Summary & Feedback
     ui.print_summary(session_id, bb.state.status, list(bb.state.shared_memory.keys()))
     
     if bb.state.status == "completed":
@@ -147,6 +152,20 @@ def list_sessions():
     # This requires blackboard to support listing. 
     # For now, placeholder.
     ui.console.print("[t.warning]Session listing not yet implemented in Blackboard backend.[/t.warning]")
+
+@app.command()
+def chat(
+    session_id: Optional[str] = typer.Option(None, help="Continue an existing session ID."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging.")
+):
+    """Start an interactive Claude-like chat session."""
+    setup_logging(level="DEBUG" if verbose else "INFO")
+    
+    sid = session_id or str(uuid.uuid4())
+    bb = Blackboard(session_id=sid)
+    orchestrator = IntentOrchestrator(blackboard=bb)
+    
+    asyncio.run(run_repl(orchestrator, bb))
 
 if __name__ == "__main__":
     app()

@@ -5,6 +5,17 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class WorldState(BaseModel):
+    """
+    Represents the environment/temporal context of the system.
+    """
+    current_date: str = Field(..., description="Today's date in YYYY-MM-DD format.")
+    current_time: str = Field(..., description="Current system time.")
+    day_of_week: str = Field(..., description="Full day name.")
+    system_era: str = Field("2026 (Agentic Reasoning Era)", description="The operational era.")
+    knowledge_cutoff: str = Field("2024", description="The approximate training cutoff of sub-agents.")
+
+
 class AtomicTask(BaseModel):
     """
     The strict contract representing a task decomposed by IntentOrchestrator (IO).
@@ -73,6 +84,7 @@ class GlobalState(BaseModel):
     """
     session_id: str = Field(..., description="Unique session ID.")
     original_intent: str = Field(..., description="The user's original goal.")
+    world_state: WorldState | None = Field(None, description="Temporal and environment context.")
     todo_list: list[AtomicTask] = Field(default_factory=list)
     completed_tasks: list[AtomicTask] = Field(default_factory=list)
     shared_memory: dict[str, Any] = Field(

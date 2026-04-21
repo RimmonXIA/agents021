@@ -15,8 +15,7 @@ def get_agent(context: dict[str, Any]) -> Agent:
         "You are the Web Search Sub-agent.",
         "Your goal is to gather objective, factual information from public sources.",
         "Focus on academic, governmental, and official news reports.",
-        "Summarize the findings neutrally and concisely.",
-        "If you encounter a sensitive topic, stick to publicly available facts."
+        "Summarize the findings neutrally and concisely, including specific version numbers and release dates."
     ]
     
     if context:

@@ -1,51 +1,42 @@
 import asyncio
-import sqlite3
 from typing import Any
 
-import lancedb
-
 from core.config import settings
+from core.memory.skill_index import SkillIndex
+from core.memory.trajectory_store import TrajectoryStore
 from core.models import AtomicTask, GlobalState, TrajectoryStep
 from core.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
 
 class Blackboard:
     """
     Manages the global state of the IntentOrchestrator's execution loop.
     Persists trajectory and state to SQLite for EO to analyze later.
     """
-    def __init__(self, session_id: str, original_intent: str):
-        self.state = GlobalState(session_id=session_id, original_intent=original_intent)
+
+    def __init__(self, session_id: str, original_intent: str = "") -> None:
+        from datetime import datetime
+
+        now = datetime.now()
+        world_state = {
+            "current_date": now.strftime("%Y-%m-%d"),
+            "current_time": now.strftime("%H:%M:%S"),
+            "day_of_week": now.strftime("%A"),
+        }
+        from core.models import WorldState as WorldStateModel
+
+        self.state = GlobalState(
+            session_id=session_id,
+            original_intent=original_intent,
+            world_state=WorldStateModel(**world_state),
+        )
         self.db_path = settings.sqlite_db_path
         self.lancedb_dir = settings.lancedb_dir
         self.lock = asyncio.Lock()
-        self._init_db()
-
-    def _init_db(self) -> None:
-        """Initializes SQLite tables for trajectory persistence and connects to LanceDB."""
-        # Ensure directories exist
-        from pathlib import Path
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(self.lancedb_dir).mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"Initializing SQLite memory at {self.db_path}")
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS trajectories (
-                    session_id TEXT,
-                    step_id INTEGER,
-                    task_json TEXT,
-                    result_json TEXT,
-                    timestamp TEXT
-                )
-            ''')
-            conn.commit()
-        
-        logger.info(f"Connecting to LanceDB at {self.lancedb_dir}")
-        self.vector_db = lancedb.connect(self.lancedb_dir)
+        self._trajectory_store = TrajectoryStore(self.db_path)
+        self._skill_index = SkillIndex(self.lancedb_dir)
 
     async def add_todo(self, task: AtomicTask) -> None:
         async with self.lock:
@@ -63,17 +54,14 @@ class Blackboard:
         async with self.lock:
             completed_ids = {t.id for t in self.state.completed_tasks}
             shared_keys = set(self.state.shared_memory.keys())
-            
+
             for task in self.state.todo_list:
-                # 1. Check depends_on (Static)
                 static_met = all(dep_id in completed_ids for dep_id in task.depends_on)
-                # 2. Check required_keys (Dynamic)
                 dynamic_met = all(key in shared_keys for key in task.required_keys)
-                
+
                 if static_met and dynamic_met:
                     ready.append(task)
-            
-            # Remove ready tasks from TODO
+
             for t in ready:
                 self.state.todo_list.remove(t)
         return ready
@@ -98,43 +86,49 @@ class Blackboard:
                     else:
                         self.state.shared_memory[key] = value
                 elif task.branch_policy == "semantic_merge":
-                    # Placeholder for advanced merging; default to overwrite for now
-                    logger.warning(f"Semantic merge requested for {key} but not yet fully implemented. Overwriting.")
+                    logger.warning(
+                        "Semantic merge requested for %s but not yet fully implemented. Overwriting.",
+                        key,
+                    )
                     self.state.shared_memory[key] = value
 
     async def get_context(self, keys: list[str], filter_query: str | None = None) -> dict[str, Any]:
         """
-        Retrieves context from shared memory. 
+        Retrieves context from shared memory.
         SOTA: Supports basic filtering to reduce token pressure on sub-agents.
         """
         async with self.lock:
             context = {k: self.state.shared_memory.get(k) for k in keys}
             if filter_query:
-                # Placeholder for JSONPath-like filtering
-                # For now, we just log the optimization intent
                 logger.debug(f"Applying context filter: {filter_query}")
             return context
+
+    def world_context_patch(self) -> dict[str, Any]:
+        """Authoritative clock/calendar fields from world_state (not shared_memory)."""
+        ws = self.state.world_state
+        if not ws:
+            return {}
+        return {
+            "current_date": ws.current_date,
+            "current_time": ws.current_time,
+            "day_of_week": ws.day_of_week,
+            "system_era": ws.system_era,
+            "knowledge_cutoff": ws.knowledge_cutoff,
+        }
 
     async def record_step(self, step: TrajectoryStep) -> None:
         """Records a step in memory and persists to SQLite."""
         async with self.lock:
             self.state.trajectory.append(step)
             self.state.completed_tasks.append(step.task)
-        
-        # SQLite WAL mode handles concurrency for the write
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                'INSERT INTO trajectories (session_id, step_id, task_json, result_json, timestamp) VALUES (?, ?, ?, ?, ?)',
-                (
-                    self.state.session_id,
-                    step.step_id,
-                    step.task.model_dump_json(),
-                    step.result.model_dump_json(),
-                    step.timestamp.isoformat()
-                )
-            )
-            conn.commit()
+
+        self._trajectory_store.append(
+            self.state.session_id,
+            step.step_id,
+            step.task.model_dump_json(),
+            step.result.model_dump_json(),
+            step.timestamp.isoformat(),
+        )
 
     async def mark_completed(self) -> None:
         async with self.lock:
@@ -144,34 +138,24 @@ class Blackboard:
         async with self.lock:
             self.state.status = "failed"
 
+    async def sync_world_state(self) -> None:
+        """Syncs the world state with current system time."""
+        from datetime import datetime
+
+        now = datetime.now()
+        async with self.lock:
+            if self.state.world_state:
+                self.state.world_state.current_date = now.strftime("%Y-%m-%d")
+                self.state.world_state.current_time = now.strftime("%H:%M:%S")
+                self.state.world_state.day_of_week = now.strftime("%A")
+
     def fetch_relevant_skills(self) -> list[dict[str, str]]:
         """Retrieves semantic relevant skills (SOPs) from LanceDB."""
-        logger.info(f"Searching for relevant skills for intent: '{self.state.original_intent}'")
-        try:
-            table = self.vector_db.open_table("skills")
-            results = table.search(self.state.original_intent).limit(3).to_list()
-            
-            skills = []
-            for r in results:
-                skills.append({
-                    "title": r.get("title", ""),
-                    "description": r.get("description", ""),
-                    "content": r.get("content_markdown", "")
-                })
-            
-            if skills:
-                logger.info(f"Found {len(skills)} relevant skills in memory.")
-            else:
-                logger.info("No relevant skills found.")
-            return skills
-        except Exception as e:
-            logger.debug(f"Skills table not found or error during retrieval: {e}")
-            return []
+        return self._skill_index.fetch_for_intent(self.state.original_intent)
 
     async def get_full_plan(self) -> Any:
         """Returns the current todo_list wrapped in an IOPlan."""
         from core.models import IOPlan
+
         async with self.lock:
-            # Note: tasks might be empty if decomposition hasn't happened or they were already popped.
-            # But decompose_intent adds them before this is usually called.
             return IOPlan(tasks=self.state.todo_list.copy())

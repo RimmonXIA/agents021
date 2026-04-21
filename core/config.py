@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     """
     Centralized configuration management for the Trinity system.
     Loads from environment variables or .env file.
+
+    Model IDs: `planner_model`, `subagent_model`, `eo_model` (see templates for usage).
+    Paths: `data_dir` + `sqlite_db_name` / `lancedb_name` for SQLite trajectories and LanceDB skills.
     """
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -35,5 +38,6 @@ class Settings(BaseSettings):
     # System Behavior
     verbose: bool = Field(True, alias="VERBOSE")
     max_retries: int = Field(3, alias="MAX_RETRIES")
+    max_concurrency: int = Field(5, alias="MAX_CONCURRENCY")
 
 settings = Settings()  # type: ignore[call-arg]

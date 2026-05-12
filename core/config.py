@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     # System Behavior
     verbose: bool = Field(True, alias="VERBOSE")
     max_retries: int = Field(3, alias="MAX_RETRIES")
+    task_timeout_seconds: int = Field(180, alias="TASK_TIMEOUT_SECONDS")
     max_concurrency: int = Field(5, alias="MAX_CONCURRENCY")
     eo_multi_pass: bool = Field(True, alias="EO_MULTI_PASS")
     eo_quality_gate: bool = Field(True, alias="EO_QUALITY_GATE")

@@ -6,6 +6,7 @@ from typing import Any
 
 from core.agents.runner import AgentRunResult, run_agent
 from core.agents.synthesizer import AgentSynthesizer
+from core.config import settings
 from core.engine.ports import StatePort
 from core.models import AtomicTask, SubAgentResult, TrajectoryStep
 from core.utils.logging import get_logger
@@ -58,7 +59,19 @@ class TaskExecutor:
                 self.ui_callback("task_status", {"task_id": task.id, "status": "Running Sub-Agent..."})
 
             prompt = f"Task: {task.description}\nExpected Output: {task.expected_output}"
-            raw_result = await run_agent(sub_agent, prompt, augment_prompt_on_parse_retry=True)
+            try:
+                raw_result = await asyncio.wait_for(
+                    run_agent(sub_agent, prompt, augment_prompt_on_parse_retry=True),
+                    timeout=max(1, settings.task_timeout_seconds),
+                )
+            except asyncio.TimeoutError:
+                timeout_msg = (
+                    f"Task execution timed out after {settings.task_timeout_seconds}s "
+                    f"for capability '{primary_capability}'."
+                )
+                logger.error(timeout_msg)
+                await self._record_failure(task, timeout_msg, local_step_id)
+                return
             if isinstance(raw_result, AgentRunResult):
                 run_result = raw_result
             elif isinstance(raw_result, str):

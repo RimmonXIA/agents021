@@ -124,12 +124,28 @@ Used for vector-based retrieval of distilled skills.
 
 ---
 
-## 7. Future Considerations
--   **Multi-Step Reflection**: Allowing EO to perform deeper analysis over multiple sessions.
--   **Advanced Safety Gating**: Implementing a dedicated "Safety Agent" within the IO loop to inspect sub-agent outputs.
--   **Reflection-Memory Strategy**: A quality-first meta design and SOTA survey is documented in [Reflection-Memory: Why It Exists and What SOTA Looks Like](reflection_memory_sota.md).
+## 7. CLI & Operational Interfaces
+
+The command-line surface is implemented in `core/cli/main.py` and exposes runtime-safe operational flows:
+
+-   **`trinity run <intent>`**: Executes one intent with optional human-in-the-loop plan review (`--review`).
+-   **`trinity chat`**: Starts an interactive REPL loop and can continue an existing session via `--session-id`.
+-   **`trinity doctor`**: Validates core environment/config and performs capability template probing.
+-   **`trinity list-sessions`**: Lists persisted session IDs for inspection and replay workflows.
+-   **`trinity rollout-status`**: Evaluates observe/soft/hard gate checks from `evals/kpi_report.json`; returns non-zero on rollback triggers for CI integration.
+
+### 7.1 Runtime Configuration Contract
+
+Key runtime switches are centralized in `core/config.py`:
+
+-   **EO Control**: `EO_MODEL`, `EO_MULTI_PASS`, `EO_QUALITY_GATE`, `EO_MIN_QUALITY_SCORE`, `EO_MAX_OUTPUT_CHARS`.
+-   **Memory/Skill Gating Stage**: `MEMORY_ROUTER_STAGE`, `SKILL_WRITE_GATE_STAGE` with normalized stages (`observe|soft|hard`).
+-   **Rollout Thresholds**: `ROLLOUT_PRECISION_AT_3_MIN`, `ROLLOUT_RECALL_AT_3_MIN`, `ROLLOUT_DEAD_END_IMPROVEMENT_MIN`.
+
+These switches enforce stage-aware retrieval/write policies and keep evaluation-driven promotion decisions externally configurable.
 
 ---
+
 
 ## 8. Parallel Execution Design
 

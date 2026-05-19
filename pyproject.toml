@@ -28,6 +28,7 @@ requires-python = ">=3.13"
 
 [project.scripts]
 trinity = "core.cli.main:app"
+arch-chat = "arch_chat.__main__:main"
 
 [project.optional-dependencies]
 dev = [
@@ -67,4 +68,4 @@ build-backend = "hatchling.build"
 package = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["core"]
+packages = ["core", "arch_chat"]

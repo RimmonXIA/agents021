@@ -29,7 +29,6 @@ class MentalLoopRunner(ArchitectureRunner):
                 "Before any execute_action, always call simulate_action first.",
                 "If simulated outcome is worse than holding, do not execute.",
             ],
-            show_tool_calls=True,
         )
         ctx.add_trace("mental_loop", "Agent must simulate before execute")
         response = await asyncio.to_thread(agent.run, ctx.message)

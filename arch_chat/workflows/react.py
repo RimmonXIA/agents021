@@ -30,7 +30,6 @@ class ReActRunner(ArchitectureRunner):
             ],
             reasoning=True,
             markdown=True,
-            show_tool_calls=True,
         )
         ctx.add_trace("react", "Starting ReAct loop with reasoning=True")
         result = await run_agent(agent, ctx.message, ctx=ctx, step_name="react")

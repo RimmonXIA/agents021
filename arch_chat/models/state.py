@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 class DraftCode(BaseModel):
     code: str = Field(description="Python code to solve the user's request.")
-    explanation: str = Field(description="Brief explanation of how the code works.")
+    explanation: str = Field(description="Brief explanation of the WHAT and the WHY, while the HOW should be interpreted as the codes itself.")
 
 
 class Critique(BaseModel):
@@ -40,9 +40,15 @@ class MetacognitiveAnalysis(BaseModel):
 
 
 class RoutingDecision(BaseModel):
-    architecture: str
-    confidence: float
-    reasoning: str
+    architecture: str = Field(
+        description="Exact architecture name from the allowed list, e.g. meta_controller, reflection."
+    )
+    confidence: float = Field(
+        description="a float num in range of[0.0, 1.0], representing the confidence in this routing choice."
+    )
+    reasoning: str = Field(
+        description="Brief explanation of why this architecture fits the user message."
+    )
 
 
 class EmailDraft(BaseModel):

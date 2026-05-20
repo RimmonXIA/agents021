@@ -1,1 +1,1 @@
-"""Router package."""
+"""Router package — LLM-native architecture selection."""

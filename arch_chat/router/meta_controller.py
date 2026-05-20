@@ -1,4 +1,4 @@
-"""Meta-Controller routing: heuristics + LLM classifier."""
+"""LLM-native architecture routing via structured API call."""
 
 from __future__ import annotations
 
@@ -8,57 +8,44 @@ from agno.agent import Agent
 from agno.models.deepseek import DeepSeek
 
 from arch_chat.models.state import RoutingDecision
-from arch_chat.registry import ARCH_REGISTRY, list_architectures
-from arch_chat.router.classifier import (
-    SPECIALIZED_ARCHS,
-    has_code_intent,
-    heuristic_route,
-)
+from arch_chat.registry import ARCH_REGISTRY, get_runner
+from arch_chat.router.prompts import build_router_system_prompt, build_router_user_prompt
 from arch_chat.runner import run_agent
 
 if TYPE_CHECKING:
     from arch_chat.tui.stream_ui import StreamSink
 
-ROUTER_INSTRUCTIONS = """
-Route the user message to exactly one architecture.
-
-Rules:
-- reflection: ONLY for explicit code generation or refactoring requests
-- meta_controller: greetings, identity questions, general Q&A, ambiguous messages
-- Never pick specialized architectures (tot, cellular_automata, dry_run, pev, mental_loop,
-  graph_memory, ensemble, blackboard) unless the message clearly matches that pattern
-- Prefer meta_controller when uncertain
-"""
+DEFAULT_ARCHITECTURE = "meta_controller"
 
 
-def validate_routing(message: str, decision: RoutingDecision) -> RoutingDecision:
-    arch = decision.architecture.lower().replace("-", "_")
-
-    if arch == "reflection" and not has_code_intent(message):
+def normalize_decision(decision: RoutingDecision) -> RoutingDecision:
+    """Map LLM output to a valid registry key; fallback only on invalid names."""
+    raw = decision.architecture.lower().replace("-", "_").replace(" ", "_").strip()
+    if raw in ARCH_REGISTRY:
         return RoutingDecision(
-            architecture="meta_controller",
-            confidence=0.9,
-            reasoning="Override: reflection requires code intent; routing to general chat.",
+            architecture=raw,
+            confidence=decision.confidence,
+            reasoning=decision.reasoning,
         )
-
-    if decision.confidence < 0.6:
+    if get_runner(raw):
+        normalized = raw
+        for key in ARCH_REGISTRY:
+            if key.replace("_", "") == raw.replace("_", ""):
+                normalized = key
+                break
         return RoutingDecision(
-            architecture="meta_controller",
-            confidence=0.8,
-            reasoning=f"Override: low confidence ({decision.confidence:.0%}); defaulting to general chat.",
+            architecture=normalized,
+            confidence=decision.confidence,
+            reasoning=decision.reasoning,
         )
-
-    if arch in SPECIALIZED_ARCHS:
-        from arch_chat.router.classifier import _matches_specialized
-
-        if not _matches_specialized(message, arch):
-            return RoutingDecision(
-                architecture="meta_controller",
-                confidence=0.85,
-                reasoning=f"Override: {arch} requires matching keywords; routing to general chat.",
-            )
-
-    return decision
+    return RoutingDecision(
+        architecture=DEFAULT_ARCHITECTURE,
+        confidence=0.5,
+        reasoning=(
+            f"LLM returned unknown architecture '{decision.architecture}'; "
+            f"defaulting to {DEFAULT_ARCHITECTURE}. Original: {decision.reasoning}"
+        ),
+    )
 
 
 async def route_message(
@@ -67,45 +54,30 @@ async def route_message(
     *,
     stream: StreamSink | None = None,
 ) -> RoutingDecision:
-    hint = heuristic_route(message)
-    if hint and hint in ARCH_REGISTRY:
-        entry = ARCH_REGISTRY[hint]
-        return RoutingDecision(
-            architecture=hint,
-            confidence=0.85,
-            reasoning=f"Heuristic match: {entry.essence}",
-        )
-
+    """Route exclusively via LLM structured output — no heuristic pre-filter."""
     if stream:
-        stream.spinner("Classifying architecture...")
+        stream.spinner("LLM routing architecture...")
 
-    arch_list = "\n".join(f"- {e.name}: {e.essence}" for e in list_architectures())
     classifier = Agent(
-        name="router",
+        name="architecture_router",
         model=model,
         output_schema=RoutingDecision,
-        instructions=(
-            ROUTER_INSTRUCTIONS
-            + f"\nValid names: {', '.join(ARCH_REGISTRY.keys())}.\n"
-            + f"Architectures:\n{arch_list}"
-        ),
+        instructions=build_router_system_prompt(),
     )
 
     result = await run_agent(
         classifier,
-        f"User message: {message}\nPick the best architecture.",
+        build_router_user_prompt(message),
         stream=stream,
         step_name="router",
         response_model=RoutingDecision,
     )
+
     if result.success and result.parsed:
-        decision: RoutingDecision = result.parsed
-        if decision.architecture.lower().replace("-", "_") in ARCH_REGISTRY:
-            decision.architecture = decision.architecture.lower().replace("-", "_")
-            return validate_routing(message, decision)
+        return normalize_decision(result.parsed)
 
     return RoutingDecision(
-        architecture="meta_controller",
-        confidence=0.5,
-        reasoning="Default general chat path.",
+        architecture=DEFAULT_ARCHITECTURE,
+        confidence=0.4,
+        reasoning="LLM routing failed; defaulting to general chat.",
     )

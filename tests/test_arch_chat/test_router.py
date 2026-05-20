@@ -1,42 +1,61 @@
 from arch_chat.models.state import RoutingDecision
-from arch_chat.router.classifier import has_code_intent, heuristic_route, is_conversational
-from arch_chat.router.meta_controller import validate_routing
+from arch_chat.registry import ARCH_REGISTRY
+from arch_chat.router.classifier import has_code_intent, is_conversational
+from arch_chat.router.meta_controller import normalize_decision
+from arch_chat.router.prompts import (
+    ARCH_ROUTING_HINTS,
+    build_architecture_catalog,
+    build_router_system_prompt,
+    build_router_user_prompt,
+)
 
 
-def test_heuristic_dry_run():
-    assert heuristic_route("Please publish this post to Twitter") == "dry_run"
+def test_build_router_prompt_contains_all_architectures():
+    prompt = build_router_system_prompt()
+    for name in ARCH_REGISTRY:
+        assert name in prompt
+    assert "meta_controller" in prompt
+    assert "reflection" in prompt
 
 
-def test_heuristic_episodic():
-    assert heuristic_route("Remember that I am allergic to peanuts") == "episodic_memory"
+def test_architecture_catalog_lists_17():
+    catalog = build_architecture_catalog()
+    assert catalog.count("\n") >= 16  # 17 entries, 16 newlines
 
 
-def test_heuristic_tot():
-    assert heuristic_route("Solve the wolf goat cabbage river puzzle") == "tot"
+def test_routing_hints_cover_all_archs():
+    assert len(ARCH_ROUTING_HINTS) == len(ARCH_REGISTRY)
 
 
-def test_heuristic_cellular_automata():
-    assert heuristic_route("Run cellular automata pathfinding on a grid") == "cellular_automata"
+def test_normalize_valid_name():
+    decision = RoutingDecision(
+        architecture="reflection",
+        confidence=0.9,
+        reasoning="code task",
+    )
+    normalized = normalize_decision(decision)
+    assert normalized.architecture == "reflection"
+    assert normalized.confidence == 0.9
 
 
-def test_heuristic_metacognitive():
-    assert heuristic_route("What prescription dosage should I take?") == "metacognitive"
+def test_normalize_unknown_falls_back_to_meta():
+    decision = RoutingDecision(
+        architecture="nonexistent_arch",
+        confidence=0.9,
+        reasoning="bad pick",
+    )
+    normalized = normalize_decision(decision)
+    assert normalized.architecture == "meta_controller"
 
 
-def test_heuristic_graph():
-    assert heuristic_route("Alice works for Acme Corp") == "graph_memory"
-
-
-def test_heuristic_reflection():
-    assert heuristic_route("Write a python function to sort a list") == "reflection"
-
-
-def test_heuristic_who_are_you():
-    assert heuristic_route("who are you?") == "meta_controller"
-
-
-def test_heuristic_hello():
-    assert heuristic_route("hello") == "meta_controller"
+def test_normalize_hyphenated_name():
+    decision = RoutingDecision(
+        architecture="meta-controller",
+        confidence=0.8,
+        reasoning="general chat",
+    )
+    normalized = normalize_decision(decision)
+    assert normalized.architecture == "meta_controller"
 
 
 def test_is_conversational_short():
@@ -51,41 +70,7 @@ def test_has_code_intent_false():
     assert has_code_intent("who are you?") is False
 
 
-def test_validate_routing_reflection_override():
-    decision = RoutingDecision(
-        architecture="reflection",
-        confidence=0.9,
-        reasoning="LLM picked reflection",
-    )
-    validated = validate_routing("who are you?", decision)
-    assert validated.architecture == "meta_controller"
-
-
-def test_validate_routing_reflection_allowed_with_code():
-    decision = RoutingDecision(
-        architecture="reflection",
-        confidence=0.9,
-        reasoning="Code request",
-    )
-    validated = validate_routing("Write a python function to sort a list", decision)
-    assert validated.architecture == "reflection"
-
-
-def test_validate_routing_low_confidence():
-    decision = RoutingDecision(
-        architecture="planning",
-        confidence=0.3,
-        reasoning="Uncertain",
-    )
-    validated = validate_routing("tell me something", decision)
-    assert validated.architecture == "meta_controller"
-
-
-def test_validate_routing_specialized_without_keywords():
-    decision = RoutingDecision(
-        architecture="tot",
-        confidence=0.8,
-        reasoning="Wrong pick",
-    )
-    validated = validate_routing("who are you?", decision)
-    assert validated.architecture == "meta_controller"
+def test_build_user_prompt_includes_message():
+    msg = "Compare AAPL and MSFT"
+    prompt = build_router_user_prompt(msg)
+    assert msg in prompt

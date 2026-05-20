@@ -23,7 +23,6 @@ class ToolUseRunner(ArchitectureRunner):
             name="tool_agent",
             tools=[mock_stock_price],
             instructions="Use tools to answer questions needing real-time data.",
-            show_tool_calls=True,
         )
         ctx.add_trace("tool_use", "Starting agent with mock_stock_price tool")
         import asyncio
